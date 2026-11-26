@@ -1,6 +1,6 @@
 // Exercise both native front-end transports with a local Responses API fixture.
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { once } from 'node:events';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -25,7 +25,9 @@ const binary = process.env.CODEX_TELEGRAM_CODEX || 'codex';
 let issueCommand = true;
 const mock = createServer(async (req, res) => {
   if (req.method !== 'POST' || !req.url.endsWith('/responses')) { res.writeHead(404); res.end(); return; }
-  for await (const _ of req) { /* drain the request */ }
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const followUp = Buffer.concat(chunks).toString().includes('How about Strasbourg?');
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
   const id = 'resp_' + Date.now();
   const push = (type, fields) => res.write('data: ' + JSON.stringify({ type, ...fields }) + '\n\n');
@@ -37,7 +39,7 @@ const mock = createServer(async (req, res) => {
       arguments: JSON.stringify({ cmd: 'pwd', sandbox_permissions: 'require_escalated', justification: 'Test the approval prompt for pwd?' }) };
   } else {
     item = { type: 'message', id: 'msg_1', role: 'assistant', status: 'completed',
-      content: [{ type: 'output_text', text: 'Offline smoke test complete.' }] };
+      content: [{ type: 'output_text', text: followUp ? 'Strasbourg follow-up received.' : 'Offline smoke test complete.' }] };
   }
   push('response.output_item.added', { output_index: 0, item });
   push('response.output_item.done', { output_index: 0, item });
@@ -59,7 +61,7 @@ const outbox = { send: async (text, options) => {
   return { message_id: notes.length };
 } };
 const topics = new Topics({ call: async method => method === 'createForumTopic' ? { message_thread_id: ++topicSequence } : true }, 123, '1', root, outbox);
-const hub = new Bridge({ project, owner: 123, topics, send: outbox.send, acknowledge: async () => {} });
+const hub = new Bridge({ project: null, owner: 123, topics, send: outbox.send, acknowledge: async () => {} });
 const launcher = fileURLToPath(new URL('../bin/bridge.js', import.meta.url));
 async function runHelper(id, args) {
   const result = await promisify(execFile)(process.execPath, [launcher, ...args], { cwd: project, env: { ...process.env, CODEX_THREAD_ID: id } });
@@ -126,6 +128,61 @@ async function smokeEditor(args, approve) {
     lines.close();
   }
 }
+async function smokeInteractive(resumeId, env = process.env) {
+  if (spawnSync('tmux', ['-V']).status !== 0) return;
+  const topicSocket = join(root, resumeId ? 'tmux-resume.sock' : 'tmux.sock');
+  const tmux = (...args) => promisify(execFile)('tmux', ['-f', '/dev/null', '-S', topicSocket, ...args], { cwd: project, env });
+  notes.length = 0;
+  issueCommand = false;
+  const args = resumeId ? ['resume', resumeId] : ['Check Colmar.'];
+  await tmux('new-session', '-d', '-x', '120', '-y', '36', '-s', 'test', process.execPath, launcher, 'cli', ...args);
+  try {
+    await until(() => notes.some(n => n.text.includes(resumeId ? 'Connected to your Codex CLI' : 'Turn completed.')));
+    const idx = notes.findIndex(n => n.text.includes(resumeId ? 'Connected to your Codex CLI' : 'Offline smoke test complete.'));
+    const topic = notes[idx].message_thread_id;
+    if (resumeId) assert.equal(topics.entries.get(resumeId).topic, topic);
+    await hub.update({ message: { message_id: 950, from: { id: 123 }, chat: { id: 123, type: 'private' },
+      message_thread_id: topic, ...(resumeId ? {} : { reply_to_message: { message_id: idx + 1 } }), text: 'How about Strasbourg?' } });
+    await until(() => notes.some(n => n.text.includes('Strasbourg follow-up received.')));
+    const deadline = Date.now() + 5000;
+    let pane;
+    do {
+      await delay(100);
+      pane = (await tmux('capture-pane', '-p', '-S', '-100', '-t', 'test')).stdout;
+    } while (!pane.includes('Strasbourg follow-up received.') && Date.now() < deadline);
+    assert.ok(pane.includes('Strasbourg follow-up received.'), 'The follow-up response should appear in the original CLI.');
+    console.log('Passed interactive CLI: ' + (resumeId ? 'resume existing topic' : 'normal prompt') + ', idle phone reply, visible response in the same terminal.');
+  } finally { await tmux('kill-server').catch(() => {}); }
+}
+async function smokeUpgrade() {
+  if (spawnSync('tmux', ['-V']).status !== 0) return;
+  const previous = join(root, 'previous');
+  const runName = 'codex-telegram-' + process.getuid();
+  mkdirSync(join(previous, runName), { recursive: true, mode: 0o700 });
+  const watches = [];
+  // The previous release supplies a socket path and an explicit per-thread
+  // watch operation. It can still have live clients when the CLI is upgraded.
+  const old = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const data = JSON.parse(Buffer.concat(chunks));
+    let result;
+    if (data.op === 'ping') result = { ready: true };
+    else if (data.op === 'endpoint') result = { path: join(root, runName, 'bridge.sock') };
+    else if (data.op === 'watch') {
+      watches.push(data.id);
+      result = await hub.runs.action(data);
+    }
+    res.end(JSON.stringify(result));
+  });
+  old.listen(join(previous, runName, 'bridge.sock'));
+  await once(old, 'listening');
+  try {
+    await smokeInteractive(undefined, { ...process.env, XDG_RUNTIME_DIR: previous });
+    assert.equal(watches.length, 1);
+    console.log('Passed upgrade with an existing listener and no agent-issued watch command.');
+  } finally { old.closeAllConnections(); old.close(); }
+}
 try {
   issueCommand = false;
   const cli = spawn(process.execPath, [fileURLToPath(new URL('../bin/bridge.js', import.meta.url)), 'cli', 'exec',
@@ -139,7 +196,10 @@ try {
     assert.ok(notes.some(n => n.text.includes('Offline smoke test complete.')), JSON.stringify(notes));
     console.log('Passed native Codex CLI: start, notification, completion.');
   } finally { clearTimeout(timer); }
-  hub.project = null;
+  const [resumeId] = topics.entries.keys();
+  await smokeInteractive();
+  await smokeInteractive(resumeId);
+  await smokeUpgrade();
   const ordinary = '76543210-0000-4000-a000-000000000000';
   assert.equal((await runHelper(ordinary, ['watch', 'Existing CLI'])).mode, 'agent');
   await runHelper(ordinary, ['notify', 'Build finished']);

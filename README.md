@@ -25,6 +25,18 @@ codex-telegram setup
 
 Keep the checkout in place while using its linked commands. If needed, add the PATH line to your shell profile. For NixOS or remote development, make Node.js and Codex available on the host actually running the agent. Use one dedicated bot per independently running workstation.
 
+## Everyday CLI use
+
+Once paired, open your project in a terminal and run:
+
+```sh
+~/.local/bin/codex-telegram cli
+```
+
+Type your task normally. The launcher automatically connects the session to its Telegram topic. While the CLI stays open, messages steer an active turn or start a follow-up after Codex finishes. The bridge handles Telegram traffic in its own process, so notifications and replies require no model-issued shell commands or helper approvals. Your Codex policy still applies to the actual work. Supported command approvals arrive as Telegram buttons.
+
+To continue an existing conversation and reuse its topic, run `~/.local/bin/codex-telegram cli resume SESSION_UUID` from the project. In Telegram, open the existing named topic and send the follow-up there. Keep the interactive CLI open. The one-shot `exec` command exits when its task completes.
+
 ## From a task prompt
 
 > Run the release tests. Use $telegram-notify for this run and name it “Release tests”.
@@ -34,16 +46,16 @@ If Codex is reading this repository from a link, follow the [notification skill]
 | How you started Codex | What the prompt enables |
 | --- | --- |
 | Ordinary CLI or VS Code session already running | The agent posts milestones, questions, observed failures, and its final result. Type in its Telegram topic. The agent reads queued replies at its next check. The local Codex client still handles built-in command approvals. |
-| Bridge-connected CLI or VS Code | Automatic progress, failure, and completion events, a heartbeat during quiet active turns, live steering, supported questions, and one-time command approvals in that session's topic. |
+| Telegram CLI launcher (automatic) or bridge-connected VS Code (prompt opt-in) | Automatic progress, failure, and completion events, a heartbeat during quiet active turns, live steering, supported questions, and one-time command approvals in that session's topic. |
 
-In an ordinary run, notifications rely on the agent reaching its next checkpoint. Use a connected client for immediate native approval prompts and runtime events. A private app-server connection already owned by another client cannot be retrofitted into the relay mid-turn.
+In an ordinary run, notifications rely on the agent reaching its next checkpoint. An ordinary agent closes its inbox when it finishes, so a later phone message cannot wake that CLI. Use the Telegram CLI launcher for follow-up conversations, immediate native approval prompts and runtime events. A private app-server connection already owned by another client cannot be retrofitted into the relay mid-turn.
 
 ### Start with native approvals
 
 **CLI** — Launch `codex-telegram cli` from your project, or include your prompt immediately:
 
 ```sh
-codex-telegram cli 'Run the build. Use telegram-notify and name the topic Nightly build.'
+codex-telegram cli 'Run the build and investigate any failures.'
 ```
 
 **VS Code** — Run `command -v codex-telegram-editor`. Set `chatgpt.cliExecutable` to that absolute path in **Preferences: Open User Settings (JSON)**, then reload the window when your current work can be interrupted. Subsequent sidebar sessions can opt in by prompt. The extension describes this executable override as a development setting. If pairing is unavailable, the adapter starts ordinary local Codex. Remove the override to restore the bundled executable.

@@ -98,3 +98,31 @@ test('native sessions stay silent until selected, accept topic steering, and rej
   assert.deepEqual(commands[1], { id: 7, result: { decision: 'accept' } });
   s.close();
 });
+
+test('CLI launch attaches explicitly opened threads only and accepts replies to the last answer while idle', async t => {
+  const f = fixture(t), commands = [];
+  const s = new Session(f.hub, m => commands.push(m), () => {}, { autoWatch: true });
+  const thread = { id: one, cwd: process.cwd() };
+  s.server({ method: 'thread/started', params: { thread: { ...thread, id: two } } });
+  assert.equal(s.threads.get(two).watched, false);
+  s.client({ id: 1, method: 'thread/resume', params: { threadId: one } });
+  s.server({ id: 1, result: { thread } });
+  assert.equal(s.threads.get(one).watched, true);
+  s.server({ method: 'turn/started', params: { threadId: one, turn: { id: 't' } } });
+  for (const [phase, text] of [['commentary', 'Searching'], ['final_answer', 'Colmar is open.']]) {
+    s.server({ method: 'item/completed', params: { threadId: one, turnId: 't', item: { id: phase, type: 'agentMessage', phase, text } } });
+  }
+  s.server({ method: 'turn/completed', params: { threadId: one, turn: { id: 't', status: 'completed' } } });
+  await flush();
+  const final = f.sent.find(m => m.text.includes('Colmar is open.'));
+  const progress = f.sent.find(m => m.text.includes('Searching'));
+  await f.message(progress.message_thread_id, 'Late progress reply', 88, { reply_to_message: progress });
+  assert.equal(commands.length, 1);
+  await f.message(undefined, 'How about Strasbourg?', 89, { reply_to_message: final });
+  assert.equal(commands.length, 2);
+  assert.equal(commands[1].method, 'turn/start');
+  assert.equal(commands[1].params.threadId, one);
+  assert.equal(commands[1].params.input[0].text, 'How about Strasbourg?');
+  s.server({ id: commands[1].id, result: {} });
+  s.close();
+});

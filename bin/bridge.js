@@ -2,7 +2,8 @@
 import { realpathSync } from 'node:fs';
 import { Bridge } from '../lib/bridge.js';
 import { ensureService, holdProject, localRequest } from '../lib/control.js';
-import { configFile, runCodex, stateDir } from '../lib/local.js';
+import { launchCli } from '../lib/cli.js';
+import { configFile, stateDir } from '../lib/local.js';
 import { listen } from '../lib/server.js';
 import { installSkill, setup } from '../lib/setup.js';
 import { loadConfig, Outbox, pair, poll, Telegram } from '../lib/telegram.js';
@@ -35,9 +36,7 @@ try {
     for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, stop);
     await poll(api, u => hub.update(u));
   } else if (action === 'cli') {
-    await ensureService();
-    const { path } = await localRequest({ op: 'endpoint', cwd: process.cwd() });
-    runCodex(['--remote', 'unix://' + path, ...args]);
+    await launchCli(args);
   } else if (['watch', 'notify', 'inbox', 'finish'].includes(action)) {
     const id = process.env.CODEX_THREAD_ID;
     if (!id) throw new Error('Run this command from the current Codex agent shell.');
