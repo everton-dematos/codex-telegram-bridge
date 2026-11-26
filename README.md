@@ -1,10 +1,6 @@
 # Codex Telegram Bridge
 
-One personal Telegram bot, one topic per Codex session. Ask in a task prompt:
-
-> Use https://github.com/everton-dematos/codex-telegram-bridge to notify me during this run. Call the topic “Release tests”.
-
-Open **Release tests** on your phone to see that session's updates and send it instructions. Another agent working on a build gets its own topic. The bot adds a short identifier to each topic name so even two runs called “Build” are distinguishable. It remembers the Telegram topic for each Codex session across bridge restarts.
+One personal Telegram bot, one topic per Codex session. After pairing, start Codex from your project terminal with `~/.local/bin/codex-telegram cli`. Give Codex your task as usual. Open the session topic on your phone to see updates, reply, and review supported command requests. Each topic has a short identifier, so you can distinguish simultaneous runs with the same name.
 
 ## Set up once on your workstation
 
@@ -21,7 +17,7 @@ codex-telegram setup
 
 1. Setup installs the personal `telegram-notify` Codex skill. It guides you to [@BotFather](https://t.me/BotFather). Send `/newbot`, choose a bot name and username, and copy the token.
 2. Paste the token into the **hidden prompt in your own terminal**. Open the private pairing link that the command prints and tap **Start**. The bot learns your Telegram user ID from that interaction. You do not enter a personal username or phone number.
-3. Open Codex and ask it to notify you. Existing paired installations can run `setup` again to add the skill. Each local user account pairs once. All of that user's local Codex sessions share one bot and one update listener.
+3. Launch `~/.local/bin/codex-telegram cli` from your project. Each local user account pairs once. All of that user's local Codex sessions share one bot and one update listener.
 
 Keep the checkout in place while using its linked commands. If needed, add the PATH line to your shell profile. For NixOS or remote development, make Node.js and Codex available on the host actually running the agent. Use one dedicated bot per independently running workstation.
 
@@ -34,6 +30,8 @@ Once paired, open your project in a terminal and run:
 ```
 
 Type your task normally. The launcher automatically connects the session to its Telegram topic. While the CLI stays open, messages steer an active turn or start a follow-up after Codex finishes. The bridge handles Telegram traffic in its own process, so notifications and replies require no model-issued shell commands or helper approvals. Your Codex policy still applies to the actual work. Supported command approvals arrive as Telegram buttons.
+
+For a quick round-trip check before a long task, open the topic on your phone, type “Reply with READY”, and look for Codex's answer both there and in the CLI.
 
 To continue an existing conversation and reuse its topic, run `~/.local/bin/codex-telegram cli resume SESSION_UUID` from the project. In Telegram, open the existing named topic and send the follow-up there. Keep the interactive CLI open. The one-shot `exec` command exits when its task completes.
 
@@ -49,6 +47,8 @@ If Codex is reading this repository from a link, follow the [notification skill]
 | Telegram CLI launcher (automatic) or bridge-connected VS Code (prompt opt-in) | Automatic progress, failure, and completion events, a heartbeat during quiet active turns, live steering, supported questions, and one-time command approvals in that session's topic. |
 
 In an ordinary run, notifications rely on the agent reaching its next checkpoint. An ordinary agent closes its inbox when it finishes, so a later phone message cannot wake that CLI. Use the Telegram CLI launcher for follow-up conversations, immediate native approval prompts and runtime events. A private app-server connection already owned by another client cannot be retrofitted into the relay mid-turn.
+
+If `watch` returns `"mode":"agent"`, it also prints a `resumeCommand` for that session. A successful `watch` confirms the topic registration. Each later `notify` needs access to the local bridge socket. If the sandbox reports `connect EPERM` or `EACCES`, that notification never reached the bridge. After the turn ends, run the printed command in your workstation terminal from the original project. The launcher reconnects the same topic for subsequent turns. Ask Codex in the topic to repeat any missed answer.
 
 ### Start with native approvals
 

@@ -140,7 +140,11 @@ async function smokeInteractive(resumeId, env = process.env) {
     await until(() => notes.some(n => n.text.includes(resumeId ? 'Connected to your Codex CLI' : 'Turn completed.')));
     const idx = notes.findIndex(n => n.text.includes(resumeId ? 'Connected to your Codex CLI' : 'Offline smoke test complete.'));
     const topic = notes[idx].message_thread_id;
-    if (resumeId) assert.equal(topics.entries.get(resumeId).topic, topic);
+    if (resumeId) {
+      const saved = topics.entries.get(resumeId);
+      assert.equal(saved.topic, topic);
+      assert.ok(notes[idx].text.startsWith('[' + saved.name + ']'));
+    }
     await hub.update({ message: { message_id: 950, from: { id: 123 }, chat: { id: 123, type: 'private' },
       message_thread_id: topic, ...(resumeId ? {} : { reply_to_message: { message_id: idx + 1 } }), text: 'How about Strasbourg?' } });
     await until(() => notes.some(n => n.text.includes('Strasbourg follow-up received.')));
@@ -198,7 +202,15 @@ try {
   } finally { clearTimeout(timer); }
   const [resumeId] = topics.entries.keys();
   await smokeInteractive();
+  // Reproduce an ordinary helper-based session with a named topic. The old
+  // CLI may have exited before its finish helper reached the local socket.
+  const registration = await runHelper(resumeId, ['watch', 'Release tests']);
+  assert.equal(registration.mode, 'agent');
+  assert.equal(registration.resumeCommand, '~/.local/bin/codex-telegram cli resume ' + resumeId);
+  const savedTopic = topics.entries.get(resumeId).topic;
   await smokeInteractive(resumeId);
+  assert.equal(topics.entries.get(resumeId).topic, savedTopic);
+  assert.equal(topics.entries.get(resumeId).label, 'Release tests');
   await smokeUpgrade();
   const ordinary = '76543210-0000-4000-a000-000000000000';
   assert.equal((await runHelper(ordinary, ['watch', 'Existing CLI'])).mode, 'agent');

@@ -107,6 +107,9 @@ test('CLI launch attaches explicitly opened threads only and accepts replies to 
   assert.equal(s.threads.get(two).watched, false);
   s.client({ id: 1, method: 'thread/resume', params: { threadId: one } });
   s.server({ id: 1, result: { thread } });
+  // A late cleanup from the ordinary session must leave the launcher's
+  // automatic forwarding active for subsequent phone instructions.
+  await f.hub.runs.action({ op: 'finish', id: one });
   assert.equal(s.threads.get(one).watched, true);
   s.server({ method: 'turn/started', params: { threadId: one, turn: { id: 't' } } });
   for (const [phase, text] of [['commentary', 'Searching'], ['final_answer', 'Colmar is open.']]) {

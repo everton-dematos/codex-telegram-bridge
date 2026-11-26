@@ -3,13 +3,15 @@ import { realpathSync } from 'node:fs';
 import { Bridge } from '../lib/bridge.js';
 import { ensureService, holdProject, localRequest } from '../lib/control.js';
 import { launchCli } from '../lib/cli.js';
-import { configFile, stateDir } from '../lib/local.js';
+import { configFile, socketPath, stateDir } from '../lib/local.js';
+import { resumeCommand } from '../lib/runs.js';
 import { listen } from '../lib/server.js';
 import { installSkill, setup } from '../lib/setup.js';
 import { loadConfig, Outbox, pair, poll, Telegram } from '../lib/telegram.js';
 import { Topics } from '../lib/topics.js';
 
 const [action, ...args] = process.argv.slice(2);
+const runHelper = ['watch', 'notify', 'inbox', 'finish'].includes(action);
 try {
   if (action === 'setup') await setup();
   else if (action === 'install-skill') console.log(installSkill());
@@ -37,7 +39,7 @@ try {
     await poll(api, u => hub.update(u));
   } else if (action === 'cli') {
     await launchCli(args);
-  } else if (['watch', 'notify', 'inbox', 'finish'].includes(action)) {
+  } else if (runHelper) {
     const id = process.env.CODEX_THREAD_ID;
     if (!id) throw new Error('Run this command from the current Codex agent shell.');
     if (args.length > 1 || (action === 'finish' && args.length)) throw new Error('Pass message text or the run label as a single argument.');
@@ -45,6 +47,7 @@ try {
     const result = await localRequest({ op: action, id, cwd: process.cwd(),
       label: action === 'watch' ? args[0] : undefined, after: action === 'inbox' ? Number(args[0] || 0) : undefined,
       text: action === 'notify' ? args[0] : undefined });
+    if (action === 'watch' && result.mode === 'agent') result.resumeCommand = resumeCommand(id);
     console.log(JSON.stringify(result));
   } else {
     console.log('Usage: codex-telegram setup | watch [LABEL] | notify TEXT | inbox [CURSOR] | finish | pair | install-skill | serve [--project PATH] | cli [CODEX_ARGS...]');
@@ -52,5 +55,12 @@ try {
   }
 } catch (e) {
   console.error(e.code === 'ENOENT' && e.path === configFile ? 'Pair once on this workstation. In your own terminal run: ~/.local/bin/codex-telegram setup' : e.message);
+  if (runHelper && e.syscall === 'connect' && e.address === socketPath && ['EPERM', 'EACCES'].includes(e.code)) {
+    const resume = resumeCommand(process.env.CODEX_THREAD_ID);
+    if (resume) {
+      if (action === 'notify') console.error('Telegram did not receive this notification.');
+      console.error('For automatic delivery, run this from the project in your workstation terminal:\n' + resume);
+    }
+  }
   process.exitCode = 1;
 }
