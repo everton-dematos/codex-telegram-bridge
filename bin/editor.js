@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline';
 import { WebSocket } from 'ws';
+import { ensureService } from '../lib/control.js';
 import { runCodex, socketPath } from '../lib/local.js';
 
 const args = process.argv.slice(2);
@@ -9,6 +10,14 @@ const index = args.indexOf('app-server');
 if (index < 0 || !args.slice(index + 1).every(a => a === '--analytics-default-enabled' || a === '--stdio')) {
   runCodex(args);
 } else {
+  try { await ensureService(); connectEditor(); }
+  catch (e) {
+    console.error('Telegram unavailable. Starting local Codex. ' + e.message);
+    runCodex(args);
+  }
+}
+
+function connectEditor() {
   const ws = new WebSocket('ws+unix://' + socketPath + ':/', {
     headers: {
       'x-codex-editor-args': Buffer.from(JSON.stringify(args)).toString('base64url'),

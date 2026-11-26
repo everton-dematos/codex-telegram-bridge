@@ -10,7 +10,7 @@
     "codex-telegram": "bin/bridge.js",
     "codex-telegram-editor": "bin/editor.js"
   },
-  "files": ["bin", "lib", "README.md", "LICENSE"],
+  "files": ["bin", "lib", "skills", "README.md", "LICENSE"],
   "scripts": { "test": "node --test" },
   "dependencies": { "ws": "^8.23.0" }
 }

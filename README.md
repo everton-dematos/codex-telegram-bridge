@@ -1,12 +1,14 @@
 # Codex Telegram Bridge
 
-Start a Codex task in your terminal or the Codex VS Code extension. When a build fails, Codex has a question, or a shell command needs approval, your private Telegram bot messages you. Reply to that message to steer the same turn. You can also answer on the workstation.
+One personal Telegram bot, one topic per Codex session. Ask in a task prompt:
 
-The bridge runs on the machine doing the work. Each person installing it pairs their own Telegram bot and uses their existing Codex login.
+> Use https://github.com/everton-dematos/codex-telegram-bridge to notify me during this run. Call the topic “Release tests”.
 
-## Install
+Open **Release tests** on your phone to see that session's updates and send it instructions. Another agent working on a build gets its own topic. The bot adds a short identifier to each topic name so even two runs called “Build” are distinguishable. It remembers the Telegram topic for each Codex session across bridge restarts.
 
-You need Node.js 22 or newer, Git, npm, and a signed-in Codex CLI with Unix-socket remote support. The integration tests cover Linux with Codex CLI 0.171.0 and the backend from VS Code extension 26.1120.50957. The implementation uses Unix sockets. macOS has not been tested.
+## Set up once on your workstation
+
+This project uses a personal bot for each user. You need Node.js 22 or newer, Git, npm, a Telegram account, and local Codex. The native integration was tested on Linux with Codex CLI 0.171.0 and the backend from VS Code extension 26.1120.50957. The bridge uses Unix sockets. macOS is untested.
 
 ```sh
 git clone https://github.com/everton-dematos/codex-telegram-bridge.git
@@ -14,69 +16,53 @@ cd codex-telegram-bridge
 npm ci --ignore-scripts
 npm install --global --prefix "$HOME/.local" --ignore-scripts "$PWD"
 export PATH="$HOME/.local/bin:$PATH"
+codex-telegram setup
 ```
 
-Keep this checkout while using the linked commands. Add the PATH line to your shell profile if needed. On NixOS, Node.js, Git, and the Codex CLI must be available in the shell running the bridge.
+1. Setup installs the personal `telegram-notify` Codex skill. It guides you to [@BotFather](https://t.me/BotFather). Send `/newbot`, choose a bot name and username, and copy the token.
+2. Paste the token into the **hidden prompt in your own terminal**. Open the private pairing link that the command prints and tap **Start**. The bot learns your Telegram user ID from that interaction. You do not enter a personal username or phone number.
+3. Open Codex and ask it to notify you. Existing paired installations can run `setup` again to add the skill. Each local user account pairs once. All of that user's local Codex sessions share one bot and one update listener.
 
-## Pair your phone once
+Keep the checkout in place while using its linked commands. If needed, add the PATH line to your shell profile. For NixOS or remote development, make Node.js and Codex available on the host actually running the agent. Use one dedicated bot per independently running workstation.
 
-1. Open [@BotFather](https://t.me/BotFather) in Telegram. Send `/newbot`, choose a name, and copy the token.
-2. Run `codex-telegram pair` on your workstation. Paste the token at the hidden terminal prompt.
-3. Open the private pairing link printed in the terminal on your phone and tap **Start** within five minutes. The terminal confirms your numeric Telegram user ID.
+## From a task prompt
 
-The token and paired user ID are stored in a mode-0600 file under `~/.config/codex-telegram-bridge/` or `$XDG_CONFIG_HOME/codex-telegram-bridge/`. For a noninteractive terminal, the pair command can read `TELEGRAM_BOT_TOKEN` from its environment. Use a dedicated bot with webhooks disabled and a single polling bridge.
+> Run the release tests. Use $telegram-notify for this run and name it “Release tests”.
 
-## Start a run
+If Codex is reading this repository from a link, follow the [notification skill](skills/telegram-notify/SKILL.md). Its first command is `codex-telegram watch "Release tests"` in the current agent shell. The helper takes the session ID from Codex, starts the local listener when needed, and confirms delivery to the paired chat. Subsequent prompts can omit the repository URL. An existing chat that has not discovered the skill yet can use the repository link.
 
-In the project you want to monitor, start the bridge and leave it running.
-
-```sh
-cd /path/to/your/project
-codex-telegram serve
-```
-
-You will receive a **Bridge online** message. Use one of the following entry points.
-
-### Codex CLI
-
-Open a second terminal in the same project.
-
-```sh
-codex-telegram cli "Run the test suite and investigate any failures."
-```
-
-This opens the native Codex terminal interface. The launcher supplies its local `--remote` connection. You can also launch `codex-telegram cli` and type the task interactively.
-
-### Codex VS Code extension
-
-1. Run `command -v codex-telegram-editor` to find the adapter's absolute path.
-2. In VS Code, open **Preferences: Open User Settings (JSON)**. Set `chatgpt.cliExecutable` to that path as a JSON string.
-3. With the bridge running, use **Developer: Reload Window** and open the project as a folder. Start or resume a conversation in the Codex sidebar. Send `/status` to your bot to check that the thread is attached.
-
-The extension describes its executable override as a development setting. Reload after switching the adapter on or off, when your current work can be interrupted. If the bridge is offline when the extension launches, the adapter starts ordinary local Codex. Start the bridge and reload to enable Telegram for subsequent runs. Remove the setting to restore the bundled executable.
-
-The server uses `codex` on its PATH. To choose a particular version, set `CODEX_TELEGRAM_CODEX` to the absolute path of a **real Codex binary** before starting the bridge. The same variable selects the executable for the CLI launcher and editor fallback if set in those environments. Keep Node.js available on the extension host's PATH. With Remote SSH or a dev container, the adapter, bridge, and Codex need to run on the same extension host and share its runtime directory.
-
-## From Telegram
-
-| What happens | What you can do |
+| How you started Codex | What the prompt enables |
 | --- | --- |
-| A turn starts, Codex posts progress, or a command fails | Reply to the bot message with an instruction, for example “Run just the failing test and show me the error.” |
-| Codex requests approval for a supported command | Review the command, directory, reason, and supplied permission context. Tap **Approve once**, **Deny**, or **Cancel turn**, depending on the choices Codex offers. |
-| Codex asks a supported input question | Use Telegram's **Reply** on the question. For multiple questions, send one answer per line. Copy the label for a fixed-choice answer. |
-| You want to check progress | Send `/status`. Each attached thread gets its own reply target. Quiet active turns also get a ten-minute heartbeat with the latest observed activity. |
-| You want to interrupt | Reply `/stop` to a status or progress message for the active turn. |
-| A turn finishes and the client is still open | Reply to its completion or status message to start a follow-up in that thread. |
+| Ordinary CLI or VS Code session already running | The agent posts milestones, questions, observed failures, and its final result. Type in its Telegram topic. The agent reads queued replies at its next check. The local Codex client still handles built-in command approvals. |
+| Bridge-connected CLI or VS Code | Automatic progress, failure, and completion events, a heartbeat during quiet active turns, live steering, supported questions, and one-time command approvals in that session's topic. |
 
-Approval buttons expire after 15 minutes. Send `/status` to get fresh buttons for a request that Codex is still waiting on. A decision made on the workstation invalidates the phone action immediately. Broader permission grants, file-change reviews, secret fields, and commands too large to show in full direct you to the local client.
+In an ordinary run, notifications rely on the agent reaching its next checkpoint. Use a connected client for immediate native approval prompts and runtime events. A private app-server connection already owned by another client cannot be retrofitted into the relay mid-turn.
 
-## How it connects
+### Start with native approvals
 
-The CLI connects over a WebSocket on a private Unix socket. The editor adapter translates its newline-delimited stdio messages to the same local transport. The bridge starts a Codex app server per client, forwards native requests and events, and sends authorized phone replies back through the originating connection. It uses Codex's active turn ID for steering and request ID for approvals. [Codex app-server protocol](https://developers.openai.com/codex/app-server/)
+**CLI** — Launch `codex-telegram cli` from your project, or include your prompt immediately:
 
-The configured project is an exact match on the thread's working directory. Other project threads use the local client as usual. Launch the bridge before opening the monitored session. An ordinary CLI or editor session already in progress can be resumed through a connected client after its active turn ends. Keep the originating client, bridge process, and workstation running. A client disconnection during an active turn produces an alert while the bridge still has Telegram connectivity. Power loss or loss of connectivity can prevent delivery.
+```sh
+codex-telegram cli 'Run the build. Use telegram-notify and name the topic Nightly build.'
+```
 
-Telegram uses outbound HTTPS long polling, so you do not need a public IP, an inbound port, or a hosted server. Agent messages, failure notices, review details, and your replies are shared with Telegram. The bridge accepts input only from the paired user in their private chat. Raw terminal output stays in the local client. [Telegram Bot API](https://core.telegram.org/bots/api#getupdates)
+**VS Code** — Run `command -v codex-telegram-editor`. Set `chatgpt.cliExecutable` to that absolute path in **Preferences: Open User Settings (JSON)**, then reload the window when your current work can be interrupted. Subsequent sidebar sessions can opt in by prompt. The extension describes this executable override as a development setting. If pairing is unavailable, the adapter starts ordinary local Codex. Remove the override to restore the bundled executable.
+
+The listener starts on demand. To automatically monitor every **connected** session rooted at one project, run `codex-telegram serve --project /path/to/project` and leave that command running. It shares the same listener with prompt-enabled sessions. Stopping it releases project-wide monitoring. Explicitly opted-in sessions keep their topics.
+
+The bridge uses `codex` on the listener's PATH. Set `CODEX_TELEGRAM_CODEX` to the absolute path of a real Codex executable to select another backend. In Remote SSH or a dev container, the adapter, agent, and bridge need to run on the same extension host and share its runtime directory.
+
+## Using the bot
+
+- **Send an instruction** by typing directly in the session topic. In connected mode, Codex steers the active turn or starts a follow-up if the thread is idle.
+- **Check status** with `/status` inside the topic. From the main bot chat, `/status` asks all attached runs to report in their own topics.
+- **Answer a question** by typing in the topic or replying to its prompt. If several native questions are pending, reply to the specific question. For multiple questions in one prompt, enter one answer per line.
+- **Review a native command** using **Approve once**, **Deny**, or **Cancel turn**, depending on what Codex offers. A workstation decision invalidates the phone button immediately. Buttons expire after 15 minutes. Send `/status` to refresh an outstanding request. Broader grants, file-change reviews, secret inputs, and commands too large to show in full direct you to the workstation.
+- **Interrupt a connected turn** with `/stop` in its topic. An ordinary run reads text instructions at its next checkpoint.
+
+The bridge enables Telegram's private-chat topic sidebar on your dedicated bot and creates topics as sessions opt in. Only the paired account's private chat can send instructions. Credentials reside in a mode-0600 file in `~/.config/codex-telegram-bridge/` or under `$XDG_CONFIG_HOME`. Each bot and owner has a separate topic mapping. Topic names, agent updates, approval details, and replies are shared with Telegram. [Telegram topic settings](https://core.telegram.org/bots/api#setmysettings) · [Telegram topic creation](https://core.telegram.org/bots/api#createforumtopic)
+
+Keep the workstation and originating client running. The listener uses outbound HTTPS long polling and local user-only sockets. It can report a connected client disconnect while Telegram is reachable. Host power loss or network loss can prevent delivery. Ordinary-run inboxes are in memory, keep the latest 100 replies, and expire after 24 hours of inactivity. A finished session's topic history stays in Telegram. [Codex app-server protocol](https://developers.openai.com/codex/app-server/)
 
 ## Verify a checkout
 
@@ -86,8 +72,6 @@ npm test
 node scripts/smoke.mjs
 ```
 
-The unit tests exercise routing and stale, duplicate, or unauthorized decisions. The smoke test runs real Codex against a loopback model fixture in a temporary project. It exercises the native CLI, the editor's stdio contract, mid-turn steering, and command approval and rejection for `pwd`. It uses simulated Telegram updates and requires local socket access. You can point it at the extension's bundled binary with `CODEX_TELEGRAM_CODEX`.
-
-For a phone check, start a connected task, send `/status`, and reply to the matching thread. To check the approval buttons, ask Codex to request one-time approval to run `pwd` outside its sandbox. Your existing Codex approval settings determine whether Codex asks. A plain run of `pwd` usually needs no approval.
+The tests cover two simultaneous agents with identical labels, topic reuse after restart, reply routing, and stale or cross-topic approvals. The smoke test uses real Codex, a loopback model fixture and simulated Telegram updates. It exercises the native CLI, the editor's stdio contract, steering, and approval and rejection of `pwd`. A live phone check requires your own bot and the pairing step.
 
 MIT licensed.
